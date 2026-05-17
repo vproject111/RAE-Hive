@@ -1,0 +1,35 @@
+name: hybrid_local_first_v1
+description: "Abstracted Role-First Council. Optimizes for RTX 4080 before cloud escalation."
+
+roles:
+  L1_writer:
+    provider: ollama
+    model: qwen3.5:9b
+    description: "Implementation, rapid analysis, patch generation"
+  
+  L2_auditor:
+    provider: ollama
+    model: deepseek-r1:8b
+    description: "Reasoning, logic consistency, counter-arguments"
+
+  L2b_senior_local_auditor:
+    provider: ollama
+    model: deepseek-r1:14b
+    enabled: false  # Optional local escalation tier
+    description: "High-precision local validation"
+
+  L3_oracle:
+    provider: cloud
+    pool:
+      - anthropic/claude-3-5-sonnet-latest
+      - openai/gpt-4o
+      - google/gemini-1.5-pro
+    mode: escalation_only
+    triggers:
+      - auditor_conflict
+      - low_confidence
+      - architectural_change
+      - regression_risk
+      - security_violation
+
+operational_mode: HARD_FRAMES
