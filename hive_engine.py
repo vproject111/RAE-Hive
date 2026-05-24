@@ -1,6 +1,5 @@
 # hive_engine.py
 import os
-import subprocess
 from fastapi import FastAPI, Request
 from mcp.server import Server
 from mcp.types import Tool, TextContent
@@ -13,24 +12,49 @@ from rae_core.bridge.handler import register_bridge
 # Import z naszego twardego jądra
 from rae_core.utils.enterprise_guard import RAE_Enterprise_Foundation, audited_operation
 
+# Import sandbox managers
+from src.sandbox_manager import GitWorktreeManager, DockerSandboxManager
+
 class HiveExecutionSwarm:
     def __init__(self):
-        # 1. Twardy wymóg inicjalizacji fundamentu Enterprise
         self.enterprise_foundation = RAE_Enterprise_Foundation(module_name="rae-hive")
+        
+        # Initialize GitWorktreeManager with current workspace root
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.worktree_manager = GitWorktreeManager(repo_root=current_dir)
+        self.sandbox_manager = DockerSandboxManager()
 
     @audited_operation(operation_name="execute_system_command", impact_level="high")
     def run_command(self, command: str) -> dict:
-        """Executes a system command within the swarm environment."""
-        self.enterprise_foundation.logger.info(f"🛠️ [Hive Execution] Command: {command}")
+        """
+        Executes a system command within a fully isolated and sandboxed Git Worktree.
+        """
+        self.enterprise_foundation.logger.info(f"🛠️ [Hive Execution] Sandboxed Command: {command}")
         
-        # Wbudowany Guard: Zakaz usuwania całego systemu
+        # Global guard: bar critically destructive commands
         if "rm -rf /" in command:
             raise PermissionError("Attempted execution of a critically destructive command.")
 
+        worktree_path = None
+        branch_name = None
         try:
-            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
-            return {"stdout": result.stdout, "stderr": result.stderr, "exit_code": result.returncode}
+            # 1. Create a safe isolated Git Worktree
+            worktree_path, branch_name = self.worktree_manager.create_worktree()
+            
+            # 2. Run command inside the ephemeral sandbox (Docker / local fallback)
+            result = self.sandbox_manager.run_in_sandbox(command, worktree_path)
+            
+            # 3. Clean up the ephemeral Git Worktree
+            self.worktree_manager.prune_worktree(worktree_path, branch_name)
+            
+            return result
         except Exception as e:
+            # Safe cleanup in case of catastrophic execution failure
+            if worktree_path and branch_name:
+                try:
+                    self.worktree_manager.prune_worktree(worktree_path, branch_name)
+                except Exception:
+                    pass
             return {"error": str(e)}
 
 # Inicjalizacja usług
@@ -42,7 +66,7 @@ async def handle_list_tools():
     return [
         Tool(
             name="execute_swarm_task",
-            description="Executes a system command within the swarm environment. Full audit trail is generated.",
+            description="Executes a system command within a fully sandboxed and isolated Swarm environment. Full audit trail generated.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -57,13 +81,16 @@ async def handle_list_tools():
 async def handle_call_tool(name: str, arguments: dict):
     if name == "execute_swarm_task":
         cmd = arguments.get("command")
-        # Wywołanie chronionej metody
         result = swarm.run_command(cmd)
         
         if "error" in result:
             return [TextContent(type="text", text=f"Error: {result['error']}")]
             
-        return [TextContent(type="text", text=f"Exit: {result['exit_code']}\nOut: {result['stdout']}")]
+        sandbox_mode = result.get("sandbox_mode", "unknown")
+        return [TextContent(
+            type="text",
+            text=f"Sandbox Mode: {sandbox_mode}\nExit: {result['exit_code']}\nOut: {result['stdout']}\nErr: {result.get('stderr', '')}"
+        )]
     raise ValueError(f"Unknown tool: {name}")
 
 app = FastAPI()
