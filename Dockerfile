@@ -51,7 +51,8 @@ COPY packages/rae-hive/base_agent /app/base_agent
 COPY packages/rae-hive/config /app/config
 COPY packages/rae-hive/hive_engine.py /app/hive_engine.py
 COPY packages/rae-hive/planner.py /app/planner.py
-COPY rae_libs /app/rae_libs
+COPY packages/rae-hive/src /app/src
+COPY packages/rae-agentic-memory/rae-core/rae_core /app/rae_libs/rae_core
 
 # Create work directory
 RUN mkdir -p /app/work_dir

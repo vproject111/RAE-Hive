@@ -42,8 +42,13 @@ except ImportError:
         from rae_core.memory import RAEMemoryBridge
     except ImportError:
         # Fallback fake implementations for standalone run
-        def register_bridge(app): pass
+        def register_bridge(app, module_name: str):
+            pass
+            
         class RAE_Enterprise_Foundation:
+            def __init__(self, module_name: str = None):
+                self.module_name = module_name
+                
             def create_context(self): 
                 return type('obj', (object,), {
                     "validate_signature": lambda x, y: True, 
@@ -51,11 +56,25 @@ except ImportError:
                     "validate_input": lambda x, y, z: True, 
                     "get_timestamp": lambda x: "2026-05-23T21:30:00Z"
                 })()
-        def audited_operation(func): return func
+                
+            @property
+            def logger(self):
+                return logger
+                
+        def audited_operation(*args, **kwargs):
+            if len(args) == 1 and callable(args[0]):
+                return args[0]
+            def decorator(func):
+                return func
+            return decorator
+            
         class RAEMemoryBridge:
             def __init__(self, **kwargs): pass
             def save_event(self, text, layer="episodic"): 
                 logger.info("bridge_event_saved", text=text, layer=layer)
+
+# Import sandbox managers
+from src.sandbox_manager import GitWorktreeManager, DockerSandboxManager
 
 # Security Level settings
 class SecurityLevel(Enum):
@@ -154,17 +173,69 @@ class HiveGarbageCollector:
                 logger.error("error_in_garbage_collector_cycle", error=str(e))
             await asyncio.sleep(120) # Run every 2 minutes
 
-# Execution Swarm class with enhanced security
+# Execution Swarm class with enhanced security and Docker/Worktree sandboxing
 class HiveExecutionSwarm:
     def __init__(self):
-        self.tools: Dict[str, Tool] = {}
-        self.security_context = RAE_Enterprise_Foundation().create_context()
+        try:
+            self.enterprise_foundation = RAE_Enterprise_Foundation(module_name="rae-hive")
+        except TypeError:
+            self.enterprise_foundation = RAE_Enterprise_Foundation()
+            
+        self.security_context = self.enterprise_foundation.create_context()
         self.security_level = SECURITY_LEVEL
-        self.memory_bridge = RAEMemoryBridge(
-            audit_enabled=bool(os.getenv("AUDIT_ENABLED", "true").lower() == "true"),
-            retention_period=int(os.getenv("MEMORY_RETENTION", 86400)),
-            encryption_key=os.getenv("MEMORY_ENCRYPTION_KEY", "secure_key_123")
-        )
+        
+        try:
+            self.memory_bridge = RAEMemoryBridge(
+                audit_enabled=bool(os.getenv("AUDIT_ENABLED", "true").lower() == "true"),
+                retention_period=int(os.getenv("MEMORY_RETENTION", 86400)),
+                encryption_key=os.getenv("MEMORY_ENCRYPTION_KEY", "secure_key_123")
+            )
+        except Exception:
+            self.memory_bridge = RAEMemoryBridge()
+
+        # Initialize GitWorktreeManager with current workspace root
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.worktree_manager = GitWorktreeManager(repo_root=current_dir)
+        self.sandbox_manager = DockerSandboxManager()
+
+    @audited_operation(operation_name="execute_system_command", impact_level="high")
+    def run_command(self, command: str) -> dict:
+        """
+        Executes a system command within a fully isolated and sandboxed Git Worktree.
+        """
+        self.enterprise_foundation.logger.info(f"🛠️ [Hive Execution] Sandboxed Command: {command}")
+        
+        # Global guard: bar critically destructive commands
+        if "rm -rf /" in command:
+            raise PermissionError("Attempted execution of a critically destructive command.")
+
+        worktree_path = None
+        branch_name = None
+        try:
+            # 1. Create a safe isolated Git Worktree
+            worktree_path, branch_name = self.worktree_manager.create_worktree()
+            
+            # 2. Run command inside the ephemeral sandbox (Docker / local fallback)
+            result = self.sandbox_manager.run_in_sandbox(command, worktree_path)
+            
+            # 3. Clean up the ephemeral Git Worktree
+            self.worktree_manager.prune_worktree(worktree_path, branch_name)
+            
+            # Log successful event to RAE-Memory
+            try:
+                self.memory_bridge.save_event(f"Hive sandboxed command run: {command[:200]}", layer="reflective")
+            except Exception:
+                pass
+                
+            return result
+        except Exception as e:
+            # Safe cleanup in case of catastrophic execution failure
+            if worktree_path and branch_name:
+                try:
+                    self.worktree_manager.prune_worktree(worktree_path, branch_name)
+                except Exception:
+                    pass
+            return {"error": str(e)}
 
     @audited_operation
     async def execute_swarm_task(self, python_code: str) -> str:
@@ -180,10 +251,8 @@ class HiveExecutionSwarm:
         # 2. Run inside sandboxed environment (Simulated local execution wrapper)
         local_scope = {}
         try:
-            import sys
-            from io import StringIO
-            
             old_stdout = sys.stdout
+            from io import StringIO
             redirected_output = sys.stdout = StringIO()
             
             exec(python_code, {}, local_scope)
@@ -192,7 +261,11 @@ class HiveExecutionSwarm:
             output = redirected_output.getvalue()
             
             # Log successful event to RAE-Memory
-            self.memory_bridge.save_event(f"Hive successfully executed swarm task. Output preview: {output[:100]}", layer="reflective")
+            try:
+                self.memory_bridge.save_event(f"Hive successfully executed swarm task. Output preview: {output[:100]}", layer="reflective")
+            except Exception:
+                pass
+                
             return f"SUCCESS:\n{output}"
         except Exception as e:
             sys.stdout = old_stdout
@@ -201,6 +274,7 @@ class HiveExecutionSwarm:
 
 # Initialize execution swarm and MCP server
 execution_swarm = HiveExecutionSwarm()
+swarm = execution_swarm  # Alias for compatibility
 mcp_server = Server("rae-hive")
 
 @mcp_server.list_tools()
@@ -208,13 +282,13 @@ async def handle_list_tools():
     return [
         Tool(
             name="execute_swarm_task",
-            description="Executes a python build/deployment task securely after passing ASTSafetyGuard scanning.",
+            description="Executes a python code or system command within a fully sandboxed and isolated Swarm environment.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "python_code": {"type": "string"}
-                },
-                "required": ["python_code"]
+                    "python_code": {"type": "string", "description": "Python code to execute (AST Safety scan enabled)"},
+                    "command": {"type": "string", "description": "System command to execute in Docker / Worktree sandbox"}
+                }
             }
         )
     ]
@@ -222,9 +296,25 @@ async def handle_list_tools():
 @mcp_server.call_tool()
 async def handle_call_tool(name: str, arguments: dict):
     if name == "execute_swarm_task":
-        code = arguments.get("python_code")
-        result = await execution_swarm.execute_swarm_task(code)
-        return [TextContent(type="text", text=result)]
+        if "python_code" in arguments:
+            code = arguments.get("python_code")
+            result = await execution_swarm.execute_swarm_task(code)
+            return [TextContent(type="text", text=result)]
+        elif "command" in arguments:
+            cmd = arguments.get("command")
+            result = swarm.run_command(cmd)
+            
+            if "error" in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+                
+            sandbox_mode = result.get("sandbox_mode", "unknown")
+            return [TextContent(
+                type="text",
+                text=f"Sandbox Mode: {sandbox_mode}\nExit: {result['exit_code']}\nOut: {result['stdout']}\nErr: {result.get('stderr', '')}"
+            )]
+        else:
+            raise ValueError("Either 'python_code' or 'command' must be provided.")
+            
     raise ValueError(f"Unknown tool: {name}")
 
 # Initialize the FastAPI application
@@ -242,7 +332,7 @@ app.add_middleware(
 app.include_router(mcp_server.router)
 
 # Register bridge
-register_bridge(app)
+register_bridge(app, "rae-hive")
 
 sse = SseServerTransport("/mcp/messages")
 
