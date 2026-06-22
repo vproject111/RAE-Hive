@@ -24,7 +24,7 @@ WORKDIR /app
 RUN python3.14 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY requirements.txt /app/requirements.txt
+COPY packages/rae-hive/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir fastapi uvicorn httpx structlog pyyaml
 
@@ -47,11 +47,11 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 
 # Copy base agent code
-COPY base_agent /app/base_agent
-COPY config /app/config
-COPY hive_engine.py /app/hive_engine.py
-COPY planner.py /app/planner.py
-COPY rae_libs /app/rae_libs
+COPY packages/rae-hive/base_agent /app/base_agent
+COPY packages/rae-hive/config /app/config
+COPY packages/rae-hive/hive_engine.py /app/hive_engine.py
+COPY packages/rae-hive/planner.py /app/planner.py
+COPY packages/rae-agentic-memory/rae-core/rae_core /app/rae_libs/rae_core
 
 # Create work directory
 RUN mkdir -p /app/work_dir
