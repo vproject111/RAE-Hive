@@ -26,7 +26,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY packages/rae-hive/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt \
-    && pip install --no-cache-dir fastapi uvicorn httpx structlog pyyaml
+    && pip install --no-cache-dir fastapi uvicorn httpx structlog pyyaml aiosqlite numpy pydantic-settings "mcp<2"
 
 # STAGE 2: Final Runtime
 FROM ubuntu:22.04
