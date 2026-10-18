@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+agent_hive/
+rae_libs/
+.pytest_cache/
+.coverage
+htmlcov/
+work_dir/

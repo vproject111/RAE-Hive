@@ -95,6 +95,11 @@ async def handle_list_tools():
 async def handle_call_tool(name: str, arguments: dict):
     if name == "execute_swarm_task":
         cmd = arguments.get("command")
+        try:
+            from strategies.semantic_watchdog import record_agent_heartbeat
+            record_agent_heartbeat("rae-hive")
+        except Exception:
+            pass
         result = swarm.run_command(cmd)
         
         if "error" in result:
@@ -116,9 +121,21 @@ async def mcp_sse_endpoint(request: Request):
     async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
         await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
 
+@app.post("/mcp/messages")
+async def mcp_messages_endpoint(request: Request):
+    await sse.handle_post_message(request.scope, request.receive, request._send)
+
+@app.get("/v2/hive/watchdog")
+async def hive_watchdog_status():
+    from strategies.semantic_watchdog import check_stale_heartbeats, record_agent_heartbeat
+    record_agent_heartbeat("rae-hive")
+    stale = check_stale_heartbeats()
+    return {"status": "monitoring", "stale_agents": stale}
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

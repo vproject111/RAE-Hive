@@ -12,8 +12,12 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from agent_hive.base_agent.connector import HiveMindConnector
-from agent_hive.planner import add_objective
+try:
+    from agent_hive.base_agent.connector import HiveMindConnector
+    from agent_hive.planner import add_objective
+except ImportError:
+    from base_agent.connector import HiveMindConnector
+    from planner import add_objective
 
 logger = structlog.get_logger(__name__)
 

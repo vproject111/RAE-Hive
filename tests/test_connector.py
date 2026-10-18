@@ -5,7 +5,10 @@ Unit tests for HiveMindConnector.
 import pytest
 from unittest.mock import AsyncMock, patch
 import httpx
-from agent_hive.base_agent.connector import HiveMindConnector
+try:
+    from agent_hive.base_agent.connector import HiveMindConnector
+except ImportError:
+    from base_agent.connector import HiveMindConnector
 
 @pytest.mark.asyncio
 async def test_connector_list_memories(mock_connector):

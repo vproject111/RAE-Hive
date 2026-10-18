@@ -26,7 +26,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY packages/rae-hive/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt \
-    && pip install --no-cache-dir fastapi uvicorn httpx structlog pyyaml
+    && pip install --no-cache-dir fastapi uvicorn httpx structlog pyyaml aiosqlite numpy pydantic-settings "mcp<2"
 
 # STAGE 2: Final Runtime
 FROM ubuntu:22.04
@@ -52,6 +52,7 @@ COPY packages/rae-hive/config /app/config
 COPY packages/rae-hive/hive_engine.py /app/hive_engine.py
 COPY packages/rae-hive/planner.py /app/planner.py
 COPY packages/rae-hive/src /app/src
+COPY packages/rae-hive/strategies /app/strategies
 COPY packages/rae-agentic-memory/rae-core/rae_core /app/rae_libs/rae_core
 
 # Create work directory
