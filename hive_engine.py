@@ -71,6 +71,13 @@ class HiveExecutionSwarm:
                     pass
             return {"error": str(e)}
 
+    def run_parallel_commands(self, commands: list) -> list:
+        """Executes up to k<=3 read-only commands in parallel using ThreadPoolExecutor."""
+        from concurrent.futures import ThreadPoolExecutor
+        bounded = list(commands)[:3]
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            return list(pool.map(self.run_command, bounded))
+
 # Inicjalizacja usług
 swarm = HiveExecutionSwarm()
 mcp_server = Server("rae-hive")
@@ -116,6 +123,13 @@ app = FastAPI()
 register_bridge(app, "rae-hive")
 sse = SseServerTransport("/mcp/messages")
 
+@app.on_event("startup")
+async def _start_hive_watchdog():
+    import asyncio
+    from strategies.semantic_watchdog import watchdog_loop, record_agent_heartbeat
+    record_agent_heartbeat("rae-hive")
+    asyncio.create_task(watchdog_loop(interval_seconds=30))
+
 @app.get("/mcp/sse")
 async def mcp_sse_endpoint(request: Request):
     async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
@@ -138,4 +152,5 @@ def health():
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
