@@ -23,8 +23,8 @@ async def auditor_loop():
 
             for task in reviews:
                 task_id = task["metadata"].get("task_id", task["id"])
-                result_filename = task["metadata"].get("result", "OperationService.ts")
-                file_path = fos.environ.get('RAE_PROJECT_ROOT', str(Path(__file__).resolve().parent.parent))
+                root_dir = os.environ.get('RAE_PROJECT_ROOT', str(Path(__file__).resolve().parent.parent))
+                file_path = os.path.join(root_dir, result_filename)
                 
                 # COOL-DOWN: Wait 15 seconds to ensure Builder finished writing
                 logger.info("audit_cooldown_started", task_id=task_id)
