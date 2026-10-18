@@ -180,14 +180,14 @@ async def check_semantic_loops():
                 )
 
 
-async def watchdog_loop():
+async def watchdog_loop(interval_seconds: int = 60):
     logger.info("Tactical Semantic Watchdog v2.3 (HIVE-CIRCUIT-BREAKER v1.0) active.")
     while True:
         try:
             await check_semantic_loops()
         except Exception as e:
             logger.warning("watchdog_iteration_error", error=str(e))
-        await asyncio.sleep(60)
+        await asyncio.sleep(interval_seconds)
 
 
 if __name__ == "__main__":
